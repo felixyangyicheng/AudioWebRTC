@@ -33,7 +33,7 @@ namespace WowzaSample
 
             services.AddSignalR();
 
-            services.AddMvc().SetCompatibilityVersion(CompatibilityVersion.Version_2_1);
+            services.AddMvc();
 
             //services.AddScoped<CommonDL>();
             services.AddSingleton<List<User>>();
@@ -42,7 +42,7 @@ namespace WowzaSample
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
-        public void Configure(IApplicationBuilder app, IHostingEnvironment env)
+        public void Configure(IApplicationBuilder app)
         {
             app.UseStaticFiles();
 
@@ -50,9 +50,15 @@ namespace WowzaSample
 
             app.UseCors("CorsPolicy");
 
-            app.UseSignalR(routes =>
+            app.UseEndpoints(endpoints =>
             {
-                routes.MapHub<WebRTCHub>("/Hubs/WebRTCHub");
+                endpoints.MapControllers();
+               
+
+                endpoints.MapHub<WebRTCHub>("/Hubs/WebRTCHub");
+
+
+
             });
 
             app.UseMvc(routes =>
