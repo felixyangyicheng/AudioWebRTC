@@ -1,25 +1,40 @@
-﻿using System;
+﻿using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Threading.Tasks;
-using Microsoft.AspNetCore;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging;
+using WowzaSample.Hubs;
+using WowzaSample.Models;
 
-namespace WowzaSample
+var builder = WebApplication.CreateBuilder(args);
+
+// Cross-origin policy to accept request from any origin (e.g. localhost:8084).
+// Note: SetIsOriginAllowed is used instead of AllowAnyOrigin to remain
+// compatible with AllowCredentials (AllowAnyOrigin + AllowCredentials throws
+// InvalidOperationException in ASP.NET Core 3.0+).
+builder.Services.AddCors(o => o.AddPolicy("CorsPolicy", b =>
 {
-    public class Program
-    {
-        public static void Main(string[] args)
-        {
-            CreateWebHostBuilder(args).Build().Run();
-        }
+    b.AllowAnyMethod()
+     .AllowAnyHeader()
+     .SetIsOriginAllowed(_ => true)
+     .AllowCredentials();
+}));
 
-        public static IWebHostBuilder CreateWebHostBuilder(string[] args) =>
-            WebHost.CreateDefaultBuilder(args)
-                .UseContentRoot(Directory.GetCurrentDirectory())
-                .UseStartup<Startup>();
-    }
-}
+builder.Services.AddSignalR();
+builder.Services.AddControllersWithViews();
+
+// In-memory singleton state for active calls
+builder.Services.AddSingleton<List<User>>();
+builder.Services.AddSingleton<List<UserCall>>();
+builder.Services.AddSingleton<List<CallOffer>>();
+
+var app = builder.Build();
+
+app.UseStaticFiles();
+app.UseFileServer();
+app.UseCors("CorsPolicy");
+
+app.MapControllers();
+app.MapHub<WebRTCHub>("/Hubs/WebRTCHub");
+app.MapControllerRoute("default", "{controller=Home}/{action=Index}/{id?}");
+
+app.Run();
