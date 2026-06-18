@@ -43,6 +43,34 @@ public class WebRTCService : IAsyncDisposable
         await _js.InvokeVoidAsync("webrtcBridge.stopLocalStream");
     }
 
+    /// <summary>Toggle microphone mute. Returns true if now muted.</summary>
+    public async Task<bool> ToggleMuteAsync()
+    {
+        await EnsureInitialized();
+        return await _js.InvokeAsync<bool>("webrtcBridge.toggleMute");
+    }
+
+    /// <summary>Check if microphone is muted.</summary>
+    public async Task<bool> IsMutedAsync()
+    {
+        await EnsureInitialized();
+        return await _js.InvokeAsync<bool>("webrtcBridge.isMuted");
+    }
+
+    /// <summary>Play incoming call ringtone.</summary>
+    public async Task PlayRingtoneAsync()
+    {
+        await EnsureInitialized();
+        await _js.InvokeVoidAsync("webrtcBridge.playRingtone");
+    }
+
+    /// <summary>Stop the ringtone.</summary>
+    public async Task StopRingtoneAsync()
+    {
+        await EnsureInitialized();
+        await _js.InvokeVoidAsync("webrtcBridge.stopRingtone");
+    }
+
     /// <summary>Create an RTCPeerConnection for a partner.</summary>
     public async Task CreatePeerConnectionAsync(string partnerId)
     {

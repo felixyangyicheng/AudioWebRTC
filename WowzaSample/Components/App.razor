@@ -6,14 +6,24 @@
     <base href="/" />
     <link href="Content/icomoon/style.css" rel="stylesheet" />
     <link href="Content/bootstrap/css/bootstrap.min.css" rel="stylesheet" />
-    <link href="Content/alertify/alertify.core.css" rel="stylesheet" />
-    <link href="Content/alertify/alertify.default.css" rel="stylesheet" />
     <link href="Content/Site.css" rel="stylesheet" />
     <HeadOutlet @rendermode="@RenderMode.InteractiveServer" />
 </head>
 <body>
     <Routes @rendermode="@RenderMode.InteractiveServer" />
     <script src="_framework/blazor.web.js"></script>
+    <script>
+        // Server-rendered configuration for the WebRTC bridge
+        window.appConfig = {
+            turnServer: {
+                urls: "turn:numb.viagenie.ca:3478?transport=udp",
+                username: "shahzad@fms-tech.com",
+                credential: "P@ssw0rdfms"
+            }
+        };
+    </script>
+    <script src="lib/signalr.min.js"></script>
+    <script src="Scripts/signalingBridge.js"></script>
     <script src="Scripts/webrtcInterop.js"></script>
 </body>
 </html>

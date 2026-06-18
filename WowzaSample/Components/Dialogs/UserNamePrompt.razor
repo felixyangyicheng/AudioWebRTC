@@ -1,0 +1,53 @@
+@* A modal dialog for entering a username. Uses Bootstrap 3 modal via JS interop-free pure Blazor. *@
+
+@if (_visible)
+{
+    <div class="modal" style="display:block; position:fixed; top:0; left:0; width:100%; height:100%; 
+                background:rgba(0,0,0,0.5); z-index:10000;">
+        <div class="modal-dialog" style="margin-top:15%;">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h4>Welcome to WebRTC Audio Caller</h4>
+                </div>
+                <div class="modal-body">
+                    <p>Please enter your name to join:</p>
+                    <input type="text" class="form-control" @bind-value="_username" 
+                           @bind-value:event="oninput" placeholder="Your name" 
+                           @onkeydown="OnKeyDown" />
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-primary" @onclick="Submit" disabled="@string.IsNullOrWhiteSpace(_username)">
+                        Join
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Visible { get; set; }
+    [Parameter] public EventCallback<string> OnSubmit { get; set; }
+
+    private bool _visible;
+    private string _username = "";
+
+    protected override void OnParametersSet()
+    {
+        _visible = Visible;
+        if (Visible)
+            _username = "";
+    }
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(_username))
+            await Submit();
+    }
+
+    private async Task Submit()
+    {
+        _visible = false;
+        await OnSubmit.InvokeAsync(_username.Trim());
+    }
+}

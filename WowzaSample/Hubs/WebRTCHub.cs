@@ -74,11 +74,14 @@ namespace WowzaSample.Hubs
             }
 
             // Create an offer
-            _CallOffers.Add(new CallOffer
+            if (callingUser != null)
             {
-                Caller = callingUser!,
-                Callee = targetUser
-            });
+                _CallOffers.Add(new CallOffer
+                {
+                    Caller = callingUser,
+                    Callee = targetUser
+                });
+            }
         }
 
         public async Task AnswerCall(bool acceptCall, User targetConnectionId)

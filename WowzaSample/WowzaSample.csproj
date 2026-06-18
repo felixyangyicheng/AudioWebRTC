@@ -10,7 +10,6 @@
     <ProjectReference Include="..\WowzaSample.Client\WowzaSample.Client.csproj" />
     <ProjectReference Include="..\WowzaSample.Shared\WowzaSample.Shared.csproj" />
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="11.0.0-preview.5.26302.115" />
-    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="11.0.0-preview.5.26302.115" />
   </ItemGroup>
 
   <ItemGroup>

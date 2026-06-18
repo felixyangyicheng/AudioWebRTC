@@ -1,0 +1,62 @@
+@* Ringing-style incoming call dialog with Accept / Decline buttons. *@
+
+@if (_visible)
+{
+    <div class="modal" style="display:block; position:fixed; top:0; left:0; width:100%; height:100%;
+                background:rgba(0,0,0,0.5); z-index:10000;">
+        <div class="modal-dialog" style="margin-top:15%;">
+            <div class="modal-content">
+                <div class="modal-header" style="background:#5bc0de; color:#fff;">
+                    <h4>
+                        <i class="icon-phone-3" style="animation: pulse 1s infinite;"></i>
+                        Incoming Call
+                    </h4>
+                </div>
+                <div class="modal-body text-center">
+                    <h3>@CallerName</h3>
+                    <p class="text-muted">is calling you...</p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-danger" @onclick="Decline">
+                        <i class="icon-phone-hang-up"></i> Decline
+                    </button>
+                    <button class="btn btn-success" @onclick="Accept">
+                        <i class="icon-phone"></i> Accept
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    @@keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.3; }
+    }
+</style>
+
+@code {
+    [Parameter] public bool Visible { get; set; }
+    [Parameter] public string CallerName { get; set; } = "";
+    [Parameter] public EventCallback<bool> OnResult { get; set; }
+
+    private bool _visible;
+
+    protected override void OnParametersSet()
+    {
+        _visible = Visible;
+    }
+
+    private async Task Accept()
+    {
+        _visible = false;
+        await OnResult.InvokeAsync(true);
+    }
+
+    private async Task Decline()
+    {
+        _visible = false;
+        await OnResult.InvokeAsync(false);
+    }
+}

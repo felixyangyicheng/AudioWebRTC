@@ -8,12 +8,18 @@ using WowzaSample.Components;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Cross-origin policy to accept request from any origin.
+// Cross-origin policy — restricted to localhost origins for development.
+// For production, replace with your actual domain(s).
 builder.Services.AddCors(o => o.AddPolicy("CorsPolicy", b =>
 {
-    b.AllowAnyMethod()
+    b.WithOrigins(
+        "https://localhost:5001",
+        "http://localhost:5000",
+        "https://localhost:44393",
+        "http://localhost:17721"
+    )
+     .AllowAnyMethod()
      .AllowAnyHeader()
-     .SetIsOriginAllowed(_ => true)
      .AllowCredentials();
 }));
 
@@ -28,6 +34,9 @@ builder.Services.AddRazorComponents()
 builder.Services.AddSingleton<List<User>>();
 builder.Services.AddSingleton<List<UserCall>>();
 builder.Services.AddSingleton<List<CallOffer>>();
+
+// Toast notification service (scoped per circuit)
+builder.Services.AddScoped<WowzaSample.Components.Dialogs.ToastService>();
 
 var app = builder.Build();
 

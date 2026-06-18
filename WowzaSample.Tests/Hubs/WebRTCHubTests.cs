@@ -178,22 +178,20 @@ public class WebRTCHubTests
     }
 
     [Fact]
-    public async Task CallUser_WhenCallerNotInUserList_CreatesOfferWithoutNotification()
+    public async Task CallUser_WhenCallerNotInUserList_DoesNotCreateOffer()
     {
-        // When the calling user is not in the user list, the hub creates the
-        // offer (with a null Caller reference) but does NOT send an incomingCall
-        // since the caller identity is unknown.
+        // When the calling user is not in the user list, the hub does NOT send
+        // an incomingCall notification NOR create an offer (the caller is unknown).
         var b = CreateHub(CallerId);
         b.AddUser("Bob", TargetId);
         var hub = b.Build();
 
         await hub.CallUser(new User { ConnectionId = TargetId });
 
-        // Offer IS created even though caller not in list
-        var offer = Assert.Single(b.CallOffers);
-        Assert.Null(offer.Caller);
+        // No offer should be created since the caller is unknown
+        Assert.Empty(b.CallOffers);
 
-        // Target does NOT receive incomingCall since the caller is unknown
+        // Target does NOT receive incomingCall
         Assert.False(b.ClientProxies.ContainsKey(TargetId));
     }
 

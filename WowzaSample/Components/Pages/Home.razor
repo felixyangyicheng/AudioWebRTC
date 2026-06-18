@@ -2,45 +2,118 @@
 @rendermode @(RenderMode.InteractiveServer)
 @using System.Text.Json
 @using WowzaSample.Models
+@using WowzaSample.Components.Dialogs
 @implements IAsyncDisposable
 @inject IJSRuntime JS
 @inject NavigationManager Nav
+@inject ToastService ToastService
 
 @* ═══════════════════════════ Styles ═══════════════════════════ *@
 <style>
-    .status { font-weight: bold; padding: 8px; }
-    .status.idle { color: #999; }
-    .status.calling { color: #f0ad4e; }
-    .status.incall { color: #5cb85c; }
-    .user-list { max-height: 400px; overflow-y: auto; }
+    .connection-bar {
+        padding: 6px 12px; font-size: 13px; text-align: center;
+        transition: background 0.3s, color 0.3s;
+    }
+    .connection-bar.connected { background: #dff0d8; color: #3c763d; }
+    .connection-bar.reconnecting { background: #fcf8e3; color: #8a6d3b; }
+    .connection-bar.disconnected { background: #f2dede; color: #a94442; }
+    .connection-bar.initializing { background: #d9edf7; color: #31708f; }
+
+    .status-section { margin-bottom: 8px; }
+    .status-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 13px; }
+    .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+    .status-dot.green { background: #5cb85c; }
+    .status-dot.yellow { background: #f0ad4e; animation: pulse 1s infinite; }
+    .status-dot.red { background: #e74c3c; }
+    .status-dot.blue { background: #3498db; animation: pulse 1s infinite; }
+
+    .spinner { 
+        display: inline-block; width: 16px; height: 16px; border: 2px solid #ccc;
+        border-top-color: #3498db; border-radius: 50%; animation: spin 0.8s linear infinite;
+        vertical-align: middle; margin-right: 4px;
+    }
+    @@keyframes spin { to { transform: rotate(360deg); } }
+    @@keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
+
+    .action-well { padding: 10px; }
+    .action-well button { width: 100%; margin-top: 6px; }
+
+    .user-list { max-height: 350px; overflow-y: auto; }
     .user-item { cursor: pointer; padding: 6px 12px; border-bottom: 1px solid #eee; }
     .user-item:hover { background-color: #f5f5f5; }
-    .user-item.me { font-weight: bold; }
+    .user-item.me { font-weight: bold; background: #f9f9f9; }
     .user-item .badge { float: right; margin-top: 2px; }
 </style>
 
-@* ═══════════════════════════ UI ═══════════════════════════ *@
+@* ═══════════════════════════ Dialogs ═══════════════════════════ *@
+<UserNamePrompt Visible="_showNamePrompt" OnSubmit="OnNameSubmitted" />
+<IncomingCallDialog Visible="_showIncomingDialog" CallerName="@_incomingCallerName" OnResult="OnCallAnswer" />
+<ToastContainer />
+
+@* ═══════════════════════════ Connection Bar ═══════════════════════════ *@
+<div class="connection-bar @_connBarClass">
+    @if (_connState == ConnState.Initializing)
+    {
+        <span class="spinner"></span> @_connMessage
+    }
+    else
+    {
+        <span class="status-dot @_connDotClass"></span> @_connMessage
+    }
+</div>
+
+@* ═══════════════════════════ Main UI ═══════════════════════════ *@
 <div class="row-fluid">
     <div class="span3">
-        <div class="well actions">
-            <div class="status @StatusClass">@StatusText</div>
-            <button class="btn btn-danger" @onclick="HangUp" disabled="@(CallState != "incall" && CallState != "calling")">
-                Hang Up
+        <div class="well action-well">
+            <div>Call Status: <strong>@StatusText</strong></div>
+            @if (CallState == "incall" && _callStartTime != null)
+            {
+                <div class="text-center" style="font-size:18px; font-weight:bold; margin:6px 0;">
+                    @_callDuration.ToString(@"mm\:ss")
+                </div>
+            }
+            @if (CallState == "incall")
+            {
+                <button class="btn @(_isMuted ? "btn-warning" : "btn-default")" @onclick="ToggleMute">
+                    <i class="@(_isMuted ? "icon-microphone-off" : "icon-microphone")"></i>
+                    @(_isMuted ? "Unmute" : "Mute")
+                </button>
+            }
+            <button class="btn btn-danger" @onclick="HangUp" 
+                    disabled="@(CallState != "incall" && CallState != "calling")">
+                <i class="icon-phone-hang-up"></i> Hang Up
             </button>
         </div>
 
+        @if (CallState == "incall")
+        {
+            <div class="well">
+                <div class="status-section">
+                    <div class="status-row">
+                        <span class="status-dot @(_rtcConnected ? "green" : "yellow")"></span>
+                        WebRTC: @(_rtcConnected ? "Connected" : "Connecting...")
+                    </div>
+                </div>
+            </div>
+        }
+
         <div class="well user-list">
             <h5>Online Users <small>(@Users.Count)</small></h5>
-            @if (Users.Count == 0)
+            @if (!_connected)
             {
-                <p class="text-muted">No users online</p>
+                <p class="text-muted">Waiting for connection...</p>
+            }
+            else if (Users.Count <= 1)
+            {
+                <p class="text-muted">No other users online</p>
             }
             else
             {
                 <ul class="nav nav-list">
                     @foreach (var user in Users)
                     {
-                        var isMe = user.ConnectionId == Signaling?.MyConnectionId;
+                        var isMe = user.ConnectionId == _myConnectionId;
                         <li class="user-item @(isMe ? "me" : "")"
                             @onclick="() => CallUser(user)"
                             style="cursor: @(isMe || CallState != "idle" ? "default" : "pointer")">
@@ -74,14 +147,39 @@
 
 @* ═══════════════════════════ Code ═══════════════════════════ *@
 @code {
+    // ── Enums ──
+    private enum ConnState { Initializing, Connected, Reconnecting, Disconnected }
+
+    // ── Services ──
     private WebRTCService? _webRtc;
-    private SignalingService? Signaling;
+    private SignalingService? _signaling;
+
+    // ── Connection State ──
+    private ConnState _connState = ConnState.Initializing;
+    private string _connMessage = "Initializing...";
+    private string _connBarClass = "initializing";
+    private string _connDotClass = "blue";
+    private bool _connected;
+    private string? _myConnectionId;
+
+    // ── Call State ──
     private List<User> Users = new();
     private string CallState = "idle";
-    private string StatusText = "Initializing...";
-    private string StatusClass = "idle";
+    private string StatusText = "Idle";
     private User? CurrentPartner;
-    private bool _usernameSet;
+    private bool _rtcConnected;
+    private bool _isMuted;
+    private DateTime? _callStartTime;
+    private TimeSpan _callDuration;
+    private CancellationTokenSource? _timerCts;
+
+    // ── Dialogs ──
+    private bool _showNamePrompt = true;
+    private bool _showIncomingDialog;
+    private string _incomingCallerName = "";
+    private User? _incomingCaller;
+
+    // ── Lifecycle ──
 
     protected override async Task OnInitializedAsync()
     {
@@ -90,66 +188,118 @@
 
         _webRtc.OnIceCandidate += async (partnerId, candidateJson) =>
         {
-            if (Signaling != null)
+            if (_signaling != null)
             {
                 var payload = candidateJson != null
                     ? $"{{\"candidate\":{candidateJson}}}"
                     : "{\"candidate\":null}";
-                await Signaling.SendSignalAsync(payload, partnerId);
+                await _signaling.SendSignalAsync(payload, partnerId);
             }
         };
     }
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (firstRender && !_usernameSet)
-        {
-            _usernameSet = true;
-            await PromptAndConnect();
-        }
-    }
+    // ── Username Prompt → Connect ──
 
-    private async Task PromptAndConnect()
+    private async Task OnNameSubmitted(string username)
     {
-        var username = await JS.InvokeAsync<string>("prompt", "What is your name?");
+        _showNamePrompt = false;
         if (string.IsNullOrWhiteSpace(username))
             username = "User " + Random.Shared.Next(1000, 9999);
 
-        await ConnectAsync(username);
+        await ConnectAsync(username.Trim());
     }
 
     private async Task ConnectAsync(string username)
     {
-        StatusText = "Connecting...";
-        StateHasChanged();
+        SetConnectionState(ConnState.Initializing, "Requesting microphone access...", "initializing");
 
         try
         {
             var deviceLabel = await _webRtc!.GetUserMediaAsync();
+            ToastService.ShowSuccess($"Microphone ready: {deviceLabel}");
+
+            SetConnectionState(ConnState.Initializing, "Connecting to signaling server...", "initializing");
 
             var hubUrl = Nav.ToAbsoluteUri("/Hubs/WebRTCHub").AbsoluteUri;
-            Signaling = new SignalingService(hubUrl);
+            _signaling = new SignalingService(JS);
 
-            Signaling.OnUserListUpdated += OnUserListUpdated;
-            Signaling.OnIncomingCall += OnIncomingCall;
-            Signaling.OnCallAccepted += OnCallAccepted;
-            Signaling.OnCallDeclined += OnCallDeclined;
-            Signaling.OnCallEnded += OnCallEnded;
-            Signaling.OnSignalReceived += OnSignalReceived;
+            _signaling.OnUserListUpdated += OnUserListUpdated;
+            _signaling.OnIncomingCall += OnIncomingCall;
+            _signaling.OnCallAccepted += OnCallAccepted;
+            _signaling.OnCallDeclined += OnCallDeclined;
+            _signaling.OnCallEnded += OnCallEnded;
+            _signaling.OnSignalReceived += OnSignalReceived;
+            _signaling.OnReconnecting += OnReconnecting;
+            _signaling.OnReconnected += OnReconnected;
+            _signaling.OnDisconnected += OnDisconnected;
 
-            await Signaling.StartAsync(username);
+            await _signaling.StartAsync(hubUrl, username);
+            _myConnectionId = _signaling.MyConnectionId;
 
+            SetConnectionState(ConnState.Connected, $"Connected as {username}", "connected");
+            _connected = true;
             CallState = "idle";
             StatusText = "Idle";
-            StatusClass = "idle";
         }
         catch (Exception ex)
         {
-            StatusText = "Error: " + ex.Message;
-            StatusClass = "calling";
+            SetConnectionState(ConnState.Disconnected, $"Connection failed: {ex.Message}", "disconnected");
+            ToastService.ShowError($"Failed to connect: {ex.Message}");
+
+            // Allow retry
+            await Task.Delay(2000);
+            _showNamePrompt = true;
         }
+    }
+
+    // ── Connection State Helpers ──
+
+    private void SetConnectionState(ConnState state, string message, string barClass)
+    {
+        _connState = state;
+        _connMessage = message;
+        _connBarClass = barClass;
+        _connDotClass = state switch
+        {
+            ConnState.Connected => "green",
+            ConnState.Reconnecting => "yellow",
+            ConnState.Disconnected => "red",
+            _ => "blue"
+        };
         StateHasChanged();
     }
+
+    private Task OnReconnecting(string error)
+    {
+        SetConnectionState(ConnState.Reconnecting, "Connection lost. Reconnecting...", "reconnecting");
+        _connected = false;
+        ToastService.ShowWarning("SignalR connection lost. Reconnecting...");
+        return Task.CompletedTask;
+    }
+
+    private async Task OnReconnected(string connectionId)
+    {
+        _myConnectionId = connectionId;
+        SetConnectionState(ConnState.Connected, $"Reconnected!", "connected");
+        _connected = true;
+        ToastService.ShowSuccess("Reconnected to signaling server!");
+
+        // Re-join the hub to restore correct user list state
+        if (_signaling != null)
+            await _signaling.RejoinAsync();
+    }
+
+    private Task OnDisconnected(string error)
+    {
+        SetConnectionState(ConnState.Disconnected, $"Disconnected: {error}", "disconnected");
+        _connected = false;
+        CallState = "idle";
+        StatusText = "Disconnected";
+        ToastService.ShowError("Disconnected from signaling server.");
+        return Task.CompletedTask;
+    }
+
+    // ── User List ──
 
     private Task OnUserListUpdated(List<User> users)
     {
@@ -158,81 +308,106 @@
         return Task.CompletedTask;
     }
 
+    // ── Call Flow ──
+
     private async Task CallUser(User user)
     {
-        if (CallState != "idle" || user.ConnectionId == Signaling?.MyConnectionId)
+        if (!_connected || CallState != "idle" || user.ConnectionId == _myConnectionId)
             return;
 
         CallState = "calling";
-        StatusText = "Calling...";
-        StatusClass = "calling";
+        StatusText = $"Calling {user.Username}...";
         CurrentPartner = user;
         StateHasChanged();
 
-        await Signaling!.CallUserAsync(user.ConnectionId);
+        await _signaling!.CallUserAsync(user.ConnectionId);
     }
 
     private Task OnIncomingCall(User caller)
     {
-        _ = InvokeAsync(async () =>
-        {
-            var accept = await JS.InvokeAsync<bool>("confirm", $"{caller.Username} is calling. Accept?");
-            if (accept)
-            {
-                CallState = "incall";
-                StatusText = "In Call";
-                StatusClass = "incall";
-                CurrentPartner = caller;
-                StateHasChanged();
+        _incomingCaller = caller;
+        _incomingCallerName = caller.Username;
+        _showIncomingDialog = true;
+        InvokeAsync(StateHasChanged);
 
-                await Signaling!.AnswerCallAsync(true, caller);
-
-                await _webRtc!.CreatePeerConnectionAsync(caller.ConnectionId);
-                var offer = await _webRtc.CreateOfferAsync(caller.ConnectionId);
-                await Signaling.SendSignalAsync(offer, caller.ConnectionId);
-            }
-            else
-            {
-                await Signaling!.AnswerCallAsync(false, caller);
-            }
-        });
+        // Play ringtone and flash title
+        _ = _webRtc!.PlayRingtoneAsync();
+        _ = JS.InvokeVoidAsync("eval", "document.title = '📞 Incoming Call — ' + '" + caller.Username + "'");
+        
         return Task.CompletedTask;
+    }
+
+    private async Task OnCallAnswer(bool accepted)
+    {
+        _showIncomingDialog = false;
+        var caller = _incomingCaller;
+        _incomingCaller = null;
+
+        // Stop ringtone
+        await _webRtc!.StopRingtoneAsync();
+        await JS.InvokeVoidAsync("eval", "document.title = 'WebRTC Audio Caller'");
+
+        if (caller == null) return;
+
+        if (accepted)
+        {
+            CallState = "incall";
+            StatusText = "In Call";
+            StateHasChanged();
+
+            await _signaling!.AnswerCallAsync(true, caller);
+
+            await _webRtc!.CreatePeerConnectionAsync(caller.ConnectionId);
+            var offer = await _webRtc.CreateOfferAsync(caller.ConnectionId);
+            await _signaling.SendSignalAsync(offer, caller.ConnectionId);
+
+            StartCallTimer();
+        }
+        else
+        {
+            await _signaling!.AnswerCallAsync(false, caller);
+        }
     }
 
     private async Task OnCallAccepted(User acceptingUser)
     {
         CallState = "incall";
         StatusText = "In Call";
-        StatusClass = "incall";
         CurrentPartner = acceptingUser;
         await InvokeAsync(StateHasChanged);
 
         await _webRtc!.CreatePeerConnectionAsync(acceptingUser.ConnectionId);
         var offer = await _webRtc.CreateOfferAsync(acceptingUser.ConnectionId);
-        await Signaling!.SendSignalAsync(offer, acceptingUser.ConnectionId);
+        await _signaling!.SendSignalAsync(offer, acceptingUser.ConnectionId);
+
+        StartCallTimer();
     }
 
     private async Task OnCallDeclined(User decliningUser, string reason)
     {
         CallState = "idle";
         StatusText = "Idle";
-        StatusClass = "idle";
         CurrentPartner = null;
         await InvokeAsync(StateHasChanged);
-        await JS.InvokeVoidAsync("alert", reason);
+        ToastService.ShowWarning(reason);
+        await _webRtc!.StopRingtoneAsync();
+        await JS.InvokeVoidAsync("eval", "document.title = 'WebRTC Audio Caller'");
     }
 
     private async Task HangUp()
     {
         if (CallState == "idle") return;
 
-        await Signaling!.HangUpAsync();
+        await _signaling!.HangUpAsync();
         await _webRtc!.CloseAllConnectionsAsync();
 
         CallState = "idle";
         StatusText = "Idle";
-        StatusClass = "idle";
         CurrentPartner = null;
+        _rtcConnected = false;
+        _isMuted = false;
+        StopCallTimer();
+        await JS.InvokeVoidAsync("eval", "document.title = 'WebRTC Audio Caller'");
         StateHasChanged();
     }
 
@@ -240,12 +415,50 @@
     {
         CallState = "idle";
         StatusText = "Idle";
-        StatusClass = "idle";
         CurrentPartner = null;
+        _rtcConnected = false;
+        _isMuted = false;
+        StopCallTimer();
         await _webRtc!.CloseAllConnectionsAsync();
         await InvokeAsync(StateHasChanged);
-        await JS.InvokeVoidAsync("alert", reason);
+        ToastService.ShowInfo(reason);
     }
+
+    // ── Call Controls ──
+
+    private async Task ToggleMute()
+    {
+        _isMuted = await _webRtc!.ToggleMuteAsync();
+        StateHasChanged();
+    }
+
+    private void StartCallTimer()
+    {
+        _callStartTime = DateTime.Now;
+        _timerCts = new CancellationTokenSource();
+        _ = RunTimer(_timerCts.Token);
+    }
+
+    private void StopCallTimer()
+    {
+        _timerCts?.Cancel();
+        _timerCts?.Dispose();
+        _timerCts = null;
+        _callStartTime = null;
+        _callDuration = TimeSpan.Zero;
+    }
+
+    private async Task RunTimer(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested && _callStartTime != null)
+        {
+            _callDuration = DateTime.Now - _callStartTime.Value;
+            await InvokeAsync(StateHasChanged);
+            await Task.Delay(1000, ct);
+        }
+    }
+
+    // ── WebRTC Signal Relay ──
 
     private async Task OnSignalReceived(User signalingUser, string signal)
     {
@@ -263,8 +476,11 @@
             if (sdpDoc.RootElement.TryGetProperty("type", out var type) && type.GetString() == "offer")
             {
                 var answer = await _webRtc.CreateAnswerAsync(signalingUser.ConnectionId);
-                await Signaling!.SendSignalAsync(answer, signalingUser.ConnectionId);
+                await _signaling!.SendSignalAsync(answer, signalingUser.ConnectionId);
             }
+
+            // SDP exchange complete → WebRTC is connecting
+            _rtcConnected = true;
         }
         else if (root.TryGetProperty("candidate", out var candidate))
         {
@@ -275,10 +491,14 @@
         }
     }
 
+    // ── Cleanup ──
+
     public async ValueTask DisposeAsync()
     {
-        if (Signaling != null)
-            await Signaling.DisposeAsync();
+        StopCallTimer();
+        await _webRtc!.StopRingtoneAsync();
+        if (_signaling != null)
+            await _signaling.DisposeAsync();
         if (_webRtc != null)
             await _webRtc.DisposeAsync();
     }
