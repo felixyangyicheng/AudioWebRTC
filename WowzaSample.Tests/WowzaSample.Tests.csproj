@@ -20,6 +20,12 @@
 
   <ItemGroup>
     <ProjectReference Include="..\WowzaSample\WowzaSample.csproj" />
+    <ProjectReference Include="..\WowzaSample.Shared\WowzaSample.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="_removed\**" />
+    <Content Remove="_removed\**" />
   </ItemGroup>
 
 </Project>

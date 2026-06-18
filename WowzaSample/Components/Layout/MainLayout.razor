@@ -1,0 +1,30 @@
+@inherits LayoutComponentBase
+
+<div class="navbar navbar-inverse navbar-fixed-top">
+    <div class="navbar-inner">
+        <div class="container-fluid">
+            <a class="brand pull-left" href="#">WebRTC Audio Caller</a>
+            <div class="nav-collapse collapse">
+                <p class="navbar-text pull-right">
+                    You are <span>@Username</span>
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="container-fluid" style="margin-top: 60px;">
+    @Body
+    <hr>
+    <footer>
+        <p class="pull-left">
+            <a href="http://www.webrtc.org/" target="_blank">WebRTC</a> |
+            <a href="https://www.wowza.com/docs/how-to-use-webrtc-with-wowza-streaming-engine" target="_blank">Wowza WebRTC</a>
+        </p>
+    </footer>
+</div>
+
+@code {
+    [Parameter]
+    public string Username { get; set; } = "";
+}

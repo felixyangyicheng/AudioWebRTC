@@ -33,7 +33,7 @@ namespace WowzaSample.Hubs
             await SendUserListUpdate();
         }
 
-        public override async Task OnDisconnectedAsync(Exception exception)
+        public override async Task OnDisconnectedAsync(Exception? exception)
         {
             // Hang up any calls the user is in
             await HangUp(); // Gets the user from "Context" which is available in the whole hub
@@ -68,12 +68,15 @@ namespace WowzaSample.Hubs
             }
 
             // They are here, so tell them someone wants to talk
-            await Clients.Client(targetConnectionId.ConnectionId).incomingCall(callingUser);
+            if (callingUser != null)
+            {
+                await Clients.Client(targetConnectionId.ConnectionId).incomingCall(callingUser);
+            }
 
             // Create an offer
             _CallOffers.Add(new CallOffer
             {
-                Caller = callingUser,
+                Caller = callingUser!,
                 Callee = targetUser
             });
         }
@@ -202,7 +205,7 @@ namespace WowzaSample.Hubs
             await Clients.All.updateUserList(_Users);
         }
 
-        private UserCall GetUserCall(string connectionId)
+        private UserCall? GetUserCall(string connectionId)
         {
             var matchingCall =
                 _UserCalls.SingleOrDefault(uc => uc.Users.SingleOrDefault(u => u.ConnectionId == connectionId) != null);
@@ -210,15 +213,5 @@ namespace WowzaSample.Hubs
         }
 
         #endregion
-    }
-
-    public interface IWebRTCHub
-    {
-        Task updateUserList(List<User> userList);
-        Task callAccepted(User acceptingUser);
-        Task callDeclined(User decliningUser, string reason);
-        Task incomingCall(User callingUser);
-        Task receiveSignal(User signalingUser, string signal);
-        Task callEnded(User signalingUser, string signal);
     }
 }

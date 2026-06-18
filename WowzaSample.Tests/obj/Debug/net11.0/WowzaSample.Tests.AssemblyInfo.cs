@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("WowzaSample.Tests")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+58dbfbc63c56af25020f257fe9e5ae426025a876")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+97d2c25a2f608c355a921f0a5feccdcb1d7173b0")]
 [assembly: System.Reflection.AssemblyProductAttribute("WowzaSample.Tests")]
 [assembly: System.Reflection.AssemblyTitleAttribute("WowzaSample.Tests")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

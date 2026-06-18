@@ -1,0 +1,285 @@
+@page "/"
+@rendermode @(RenderMode.InteractiveServer)
+@using System.Text.Json
+@using WowzaSample.Models
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+
+@* ═══════════════════════════ Styles ═══════════════════════════ *@
+<style>
+    .status { font-weight: bold; padding: 8px; }
+    .status.idle { color: #999; }
+    .status.calling { color: #f0ad4e; }
+    .status.incall { color: #5cb85c; }
+    .user-list { max-height: 400px; overflow-y: auto; }
+    .user-item { cursor: pointer; padding: 6px 12px; border-bottom: 1px solid #eee; }
+    .user-item:hover { background-color: #f5f5f5; }
+    .user-item.me { font-weight: bold; }
+    .user-item .badge { float: right; margin-top: 2px; }
+</style>
+
+@* ═══════════════════════════ UI ═══════════════════════════ *@
+<div class="row-fluid">
+    <div class="span3">
+        <div class="well actions">
+            <div class="status @StatusClass">@StatusText</div>
+            <button class="btn btn-danger" @onclick="HangUp" disabled="@(CallState != "incall" && CallState != "calling")">
+                Hang Up
+            </button>
+        </div>
+
+        <div class="well user-list">
+            <h5>Online Users <small>(@Users.Count)</small></h5>
+            @if (Users.Count == 0)
+            {
+                <p class="text-muted">No users online</p>
+            }
+            else
+            {
+                <ul class="nav nav-list">
+                    @foreach (var user in Users)
+                    {
+                        var isMe = user.ConnectionId == Signaling?.MyConnectionId;
+                        <li class="user-item @(isMe ? "me" : "")"
+                            @onclick="() => CallUser(user)"
+                            style="cursor: @(isMe || CallState != "idle" ? "default" : "pointer")">
+                            <i class="@(isMe ? "icon-user" : (user.InCall ? "icon-phone-3" : "icon-phone-4"))"></i>
+                            @user.Username
+                            <span class="badge @(user.InCall ? "badge-warning" : "badge-success")">
+                                @(isMe ? "Me" : (user.InCall ? "In Call" : "Available"))
+                            </span>
+                        </li>
+                    }
+                </ul>
+            }
+        </div>
+
+        <div class="well conn-type">
+            <button type="button" class="btn btn-dark">
+                Connection Type <span class="badge badge-secondary">Audio</span>
+            </button>
+        </div>
+    </div>
+
+    <div class="span9">
+        <div class="row-fluid">
+            <div class="span6">
+                <h4>Partner</h4>
+                <audio class="audio partner" autoplay controls></audio>
+            </div>
+        </div>
+    </div>
+</div>
+
+@* ═══════════════════════════ Code ═══════════════════════════ *@
+@code {
+    private WebRTCService? _webRtc;
+    private SignalingService? Signaling;
+    private List<User> Users = new();
+    private string CallState = "idle";
+    private string StatusText = "Initializing...";
+    private string StatusClass = "idle";
+    private User? CurrentPartner;
+    private bool _usernameSet;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _webRtc = new WebRTCService(JS);
+        await _webRtc.InitializeAsync();
+
+        _webRtc.OnIceCandidate += async (partnerId, candidateJson) =>
+        {
+            if (Signaling != null)
+            {
+                var payload = candidateJson != null
+                    ? $"{{\"candidate\":{candidateJson}}}"
+                    : "{\"candidate\":null}";
+                await Signaling.SendSignalAsync(payload, partnerId);
+            }
+        };
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !_usernameSet)
+        {
+            _usernameSet = true;
+            await PromptAndConnect();
+        }
+    }
+
+    private async Task PromptAndConnect()
+    {
+        var username = await JS.InvokeAsync<string>("prompt", "What is your name?");
+        if (string.IsNullOrWhiteSpace(username))
+            username = "User " + Random.Shared.Next(1000, 9999);
+
+        await ConnectAsync(username);
+    }
+
+    private async Task ConnectAsync(string username)
+    {
+        StatusText = "Connecting...";
+        StateHasChanged();
+
+        try
+        {
+            var deviceLabel = await _webRtc!.GetUserMediaAsync();
+
+            var hubUrl = Nav.ToAbsoluteUri("/Hubs/WebRTCHub").AbsoluteUri;
+            Signaling = new SignalingService(hubUrl);
+
+            Signaling.OnUserListUpdated += OnUserListUpdated;
+            Signaling.OnIncomingCall += OnIncomingCall;
+            Signaling.OnCallAccepted += OnCallAccepted;
+            Signaling.OnCallDeclined += OnCallDeclined;
+            Signaling.OnCallEnded += OnCallEnded;
+            Signaling.OnSignalReceived += OnSignalReceived;
+
+            await Signaling.StartAsync(username);
+
+            CallState = "idle";
+            StatusText = "Idle";
+            StatusClass = "idle";
+        }
+        catch (Exception ex)
+        {
+            StatusText = "Error: " + ex.Message;
+            StatusClass = "calling";
+        }
+        StateHasChanged();
+    }
+
+    private Task OnUserListUpdated(List<User> users)
+    {
+        Users = users;
+        InvokeAsync(StateHasChanged);
+        return Task.CompletedTask;
+    }
+
+    private async Task CallUser(User user)
+    {
+        if (CallState != "idle" || user.ConnectionId == Signaling?.MyConnectionId)
+            return;
+
+        CallState = "calling";
+        StatusText = "Calling...";
+        StatusClass = "calling";
+        CurrentPartner = user;
+        StateHasChanged();
+
+        await Signaling!.CallUserAsync(user.ConnectionId);
+    }
+
+    private Task OnIncomingCall(User caller)
+    {
+        _ = InvokeAsync(async () =>
+        {
+            var accept = await JS.InvokeAsync<bool>("confirm", $"{caller.Username} is calling. Accept?");
+            if (accept)
+            {
+                CallState = "incall";
+                StatusText = "In Call";
+                StatusClass = "incall";
+                CurrentPartner = caller;
+                StateHasChanged();
+
+                await Signaling!.AnswerCallAsync(true, caller);
+
+                await _webRtc!.CreatePeerConnectionAsync(caller.ConnectionId);
+                var offer = await _webRtc.CreateOfferAsync(caller.ConnectionId);
+                await Signaling.SendSignalAsync(offer, caller.ConnectionId);
+            }
+            else
+            {
+                await Signaling!.AnswerCallAsync(false, caller);
+            }
+        });
+        return Task.CompletedTask;
+    }
+
+    private async Task OnCallAccepted(User acceptingUser)
+    {
+        CallState = "incall";
+        StatusText = "In Call";
+        StatusClass = "incall";
+        CurrentPartner = acceptingUser;
+        await InvokeAsync(StateHasChanged);
+
+        await _webRtc!.CreatePeerConnectionAsync(acceptingUser.ConnectionId);
+        var offer = await _webRtc.CreateOfferAsync(acceptingUser.ConnectionId);
+        await Signaling!.SendSignalAsync(offer, acceptingUser.ConnectionId);
+    }
+
+    private async Task OnCallDeclined(User decliningUser, string reason)
+    {
+        CallState = "idle";
+        StatusText = "Idle";
+        StatusClass = "idle";
+        CurrentPartner = null;
+        await InvokeAsync(StateHasChanged);
+        await JS.InvokeVoidAsync("alert", reason);
+    }
+
+    private async Task HangUp()
+    {
+        if (CallState == "idle") return;
+
+        await Signaling!.HangUpAsync();
+        await _webRtc!.CloseAllConnectionsAsync();
+
+        CallState = "idle";
+        StatusText = "Idle";
+        StatusClass = "idle";
+        CurrentPartner = null;
+        StateHasChanged();
+    }
+
+    private async Task OnCallEnded(User signalingUser, string reason)
+    {
+        CallState = "idle";
+        StatusText = "Idle";
+        StatusClass = "idle";
+        CurrentPartner = null;
+        await _webRtc!.CloseAllConnectionsAsync();
+        await InvokeAsync(StateHasChanged);
+        await JS.InvokeVoidAsync("alert", reason);
+    }
+
+    private async Task OnSignalReceived(User signalingUser, string signal)
+    {
+        await _webRtc!.CreatePeerConnectionAsync(signalingUser.ConnectionId);
+
+        using var doc = JsonDocument.Parse(signal);
+        var root = doc.RootElement;
+
+        if (root.TryGetProperty("sdp", out var sdp))
+        {
+            var sdpJson = sdp.GetRawText();
+            await _webRtc.SetRemoteDescriptionAsync(signalingUser.ConnectionId, sdpJson);
+
+            using var sdpDoc = JsonDocument.Parse(sdpJson);
+            if (sdpDoc.RootElement.TryGetProperty("type", out var type) && type.GetString() == "offer")
+            {
+                var answer = await _webRtc.CreateAnswerAsync(signalingUser.ConnectionId);
+                await Signaling!.SendSignalAsync(answer, signalingUser.ConnectionId);
+            }
+        }
+        else if (root.TryGetProperty("candidate", out var candidate))
+        {
+            if (candidate.ValueKind == JsonValueKind.Null)
+                await _webRtc.AddIceCandidateAsync(signalingUser.ConnectionId, null);
+            else
+                await _webRtc.AddIceCandidateAsync(signalingUser.ConnectionId, candidate.GetRawText());
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (Signaling != null)
+            await Signaling.DisposeAsync();
+        if (_webRtc != null)
+            await _webRtc.DisposeAsync();
+    }
+}

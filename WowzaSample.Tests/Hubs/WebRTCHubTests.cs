@@ -178,11 +178,11 @@ public class WebRTCHubTests
     }
 
     [Fact]
-    public async Task CallUser_WhenCallerNotInUserList_SendsIncomingCallWithNull()
+    public async Task CallUser_WhenCallerNotInUserList_CreatesOfferWithoutNotification()
     {
-        // The hub currently proceeds even when the calling user is not in the
-        // user list — it sends incomingCall(null) to the target and creates an
-        // offer with a null Caller reference.
+        // When the calling user is not in the user list, the hub creates the
+        // offer (with a null Caller reference) but does NOT send an incomingCall
+        // since the caller identity is unknown.
         var b = CreateHub(CallerId);
         b.AddUser("Bob", TargetId);
         var hub = b.Build();
@@ -193,10 +193,8 @@ public class WebRTCHubTests
         var offer = Assert.Single(b.CallOffers);
         Assert.Null(offer.Caller);
 
-        var targetProxy = b.ClientProxies[TargetId];
-        targetProxy.Verify(
-            p => p.incomingCall(It.Is<User>(u => u == null)),
-            Times.Once);
+        // Target does NOT receive incomingCall since the caller is unknown
+        Assert.False(b.ClientProxies.ContainsKey(TargetId));
     }
 
     // ────────────────────────────── AnswerCall ──────────────────────────────

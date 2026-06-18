@@ -4,16 +4,15 @@
     "frameworks": [
       {
         "name": "Microsoft.NETCore.App",
-        "version": "11.0.0-preview.3.26207.106"
+        "version": "11.0.0-preview.5.26302.115"
       },
       {
         "name": "Microsoft.AspNetCore.App",
-        "version": "11.0.0-preview.3.26207.106"
+        "version": "11.0.0-preview.5.26302.115"
       }
     ],
     "configProperties": {
       "System.GC.Server": true,
-      "System.Reflection.NullabilityInfoContext.IsSupported": true,
       "System.Runtime.Serialization.EnableUnsafeBinaryFormatterSerialization": false
     }
   }
